@@ -1,3 +1,5 @@
-mediapipe>=1.0
+mediapipe
+numpy<2
 opencv-python-headless
 gpiozero
+lgpio

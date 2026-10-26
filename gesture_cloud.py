@@ -87,11 +87,19 @@ class Cloud:
         self.board.close()
 
 
+# рёбра скелета кисти (то же, что HAND_CONNECTIONS в MediaPipe, не зависит от версии)
+HAND_EDGES = [
+    (0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12), (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (17, 18), (18, 19), (19, 20), (0, 17),
+]
+
+
 def draw_hand(img, pts):
     h, w = img.shape[:2]
     px = [(int(x * w), int(y * h)) for x, y in pts]
-    for c in vision.HandLandmarksConnections.HAND_CONNECTIONS:
-        cv2.line(img, px[c.start], px[c.end], (0, 200, 0), 1)
+    for a, b in HAND_EDGES:
+        cv2.line(img, px[a], px[b], (0, 200, 0), 1)
     for p in px:
         cv2.circle(img, p, 2, (0, 0, 255), -1)
 
