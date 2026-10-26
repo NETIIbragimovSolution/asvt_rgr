@@ -9,14 +9,17 @@ import argparse
 import threading
 import time
 from collections import Counter, deque
+from pathlib import Path
 
 import cv2
 import mediapipe as mp
+from mediapipe.tasks.python import BaseOptions, vision
 
 from fingers import count_fingers
 
 # BCM-пины 12 светодиодов облачка (по вики Амперки)
 LED_PINS = [10, 12, 13, 14, 15, 16, 17, 18, 19, 21, 24, 26]
+MODEL_PATH = Path(__file__).parent / "models" / "hand_landmarker.task"
 MAX_COUNT = 10  # две руки по пять пальцев
 STALE_AFTER = 3.0  # секунд без кадров -> гасим светодиоды
 
@@ -84,6 +87,15 @@ class Cloud:
         self.board.close()
 
 
+def draw_hand(img, pts):
+    h, w = img.shape[:2]
+    px = [(int(x * w), int(y * h)) for x, y in pts]
+    for c in vision.HandLandmarksConnections.HAND_CONNECTIONS:
+        cv2.line(img, px[c.start], px[c.end], (0, 200, 0), 1)
+    for p in px:
+        cv2.circle(img, p, 2, (0, 0, 255), -1)
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("url", help="адрес потока, например http://192.168.1.50:8081/video")
@@ -100,13 +112,15 @@ def main():
     reader = StreamReader(args.url)
     reader.start()
 
-    hands = mp.solutions.hands.Hands(
-        max_num_hands=2,
-        model_complexity=0,  # самая лёгкая модель, нужна для Pi 3B+
-        min_detection_confidence=0.6,
-        min_tracking_confidence=0.5,
+    hands = vision.HandLandmarker.create_from_options(
+        vision.HandLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=str(MODEL_PATH)),
+            running_mode=vision.RunningMode.IMAGE,
+            num_hands=2,
+            min_hand_detection_confidence=0.6,
+            min_tracking_confidence=0.5,
+        )
     )
-    drawer = mp.solutions.drawing_utils
     history = deque(maxlen=args.smooth)
     shown = -1
     last_seq = -1
@@ -125,14 +139,14 @@ def main():
             else:
                 h, w = frame.shape[:2]
                 small = cv2.resize(frame, (args.width, int(h * args.width / w)))
-                result = hands.process(cv2.cvtColor(small, cv2.COLOR_BGR2RGB))
+                rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+                result = hands.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
                 total = 0
-                if result.multi_hand_landmarks:
-                    for hand in result.multi_hand_landmarks:
-                        pts = [(lm.x, lm.y) for lm in hand.landmark]
-                        total += count_fingers(pts)
-                        if args.show:
-                            drawer.draw_landmarks(small, hand, mp.solutions.hands.HAND_CONNECTIONS)
+                for hand in result.hand_landmarks:
+                    pts = [(lm.x, lm.y) for lm in hand]
+                    total += count_fingers(pts)
+                    if args.show:
+                        draw_hand(small, pts)
                 history.append(min(total, MAX_COUNT))
                 if args.show:
                     cv2.putText(small, str(history[-1]), (10, 40),
